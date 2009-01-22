@@ -77,7 +77,7 @@ static int read_block(int fd, off_t offset)
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2 ) {
+    if (argc < 2 || !strcmp(argv[1], "--help")) {
         fprintf(stderr, "%s <pid>: dump some heap blocks from a process to diagnose leaks\n", argv[0]);
         exit(1);
     }
