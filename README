@@ -1,0 +1,36 @@
+leakdice is a tool which dumps random pages from a specified process
+
+Dependencies:
+
+Linux 2.x with proc filesystem
+
+Concept:
+
+The idea behind leakdice is that a Monte Carlo sampling method is effective
+for diagnosing gross leaks. Unlike more conventional leak-detecting methods
+the sampling method doesn't require the process to be instrumented, instead
+it relies on the following chain of ideas:
+
+* The program's normal working set is much smaller than the leaked data
+
+* Therefore a randomly selected page of heap data is much more likely to
+contain leaked data than other (not leaked) data
+
+* Low-level programmers most likely to be diagnosing a leak are familiar
+enough with the data structures used in their code that there's a good chance
+they can identify them by sight
+
+
+Usage:
+
+For example, if your leaking process has PID 5844, simply type:
+
+leakdice 5844
+
+If the page dumped seems irrelevant, try again, a different random page
+should be chosen.
+
+
+leakdice was developed by Nick Lamb.
+You are welcome to modify, copy and redistribute this software under the terms
+of the GNU GPL which is included in the file COPYING.
