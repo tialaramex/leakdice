@@ -64,9 +64,9 @@ static void dump_ascii(off_t offset, uint8_t *buffer, int count)
     }
 }
 
-static int read_block(int fd, off_t offset)
+static int read_page(int fd, off_t offset)
 {
-    uint8_t buffer[1024];
+    uint8_t buffer[4096];
     if (pread(fd, buffer, sizeof(buffer), offset) == -1) {
         return -1;
     }
@@ -78,7 +78,7 @@ static int read_block(int fd, off_t offset)
 int main(int argc, char *argv[])
 {
     if (argc < 2 || !strcmp(argv[1], "--help")) {
-        fprintf(stderr, "%s <pid>: dump some heap blocks from a process to diagnose leaks\n", argv[0]);
+        fprintf(stderr, "%s <pid>: dump some heap pages from a process to diagnose leaks\n", argv[0]);
         exit(1);
     }
 
@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
         if (inode == 0 && (to - from > 4096) && !strcmp(perms, "rw-p")) {
             /* most likely this is heap data */
             printf("%08lx-%08lx = %lu kbytes\n", from, to, (to - from) / 1024);
-            if (read_block(fd, from) == -1) {
+            if (read_page(fd, from) == -1) {
                 perror("leakdice: pread failed");
                 ptrace(PTRACE_DETACH, pid, NULL, SIGCONT);
                 exit(1);
