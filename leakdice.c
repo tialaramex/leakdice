@@ -34,18 +34,37 @@
 
 #include <sys/ptrace.h>
 
+/* it's OK if the page size is actually larger than this */
+#define ASSUME_PAGE_SIZE 4096
+
+#if RAND_MAX < 10000000
+#warning prefer a better random number generator
+#endif
+
 static void dump_ascii(off_t offset, uint8_t *buffer, int count)
 {
     int rows = (count + 15) / 16;
-    int row;
+    int row, skip = 0;
 
     for (row = 0; row < rows; ++row) {
-        printf("%08x ", offset + (row * 16));
-
-        int width = 16;
+        int k, width = 16;
         if (row * 16 + width > count) width = count - (row * 16);
 
-        int k;
+        if (row > 0) {
+            for (k = 0 ; k < width; ++k) {
+                if (buffer[row * 16 + k] != buffer[(row-1) * 16 + k]) break;
+            }
+            if (k == width) {
+                if (skip == 0) printf(" ...\n");
+                skip = 1;
+                continue;
+            } else {
+                skip = 0;
+            }
+        }
+
+        printf("%08x ", offset + (row * 16));
+
         for (k = 0; k < width; ++k) {
             if (buffer[row * 16 + k] >= 0x20 && buffer[row * 16 + k] < 0x7f) {
                 putchar(buffer[row * 16 + k]);
@@ -66,7 +85,7 @@ static void dump_ascii(off_t offset, uint8_t *buffer, int count)
 
 static int read_page(int fd, off_t offset)
 {
-    uint8_t buffer[4096];
+    uint8_t buffer[ASSUME_PAGE_SIZE];
     if (pread(fd, buffer, sizeof(buffer), offset) == -1) {
         return -1;
     }
@@ -119,6 +138,10 @@ int main(int argc, char *argv[])
         fprintf(stderr, "process signalled but not as intended?\n");
     }
 
+    unsigned long offsets[1024], sizes[1024];
+    unsigned long total = 0;
+    int heaps = 0;
+
     while (!feof(file)) {
         unsigned long from, to, offset, inode;
         char perms[5];
@@ -126,15 +149,33 @@ int main(int argc, char *argv[])
         char filename[512];
 
         int count = fscanf(file, "%lx-%lx %4s %lx %x:%x %lu%[^\n]\n", &from, &to, perms, &offset, &devhi, &devlo, &inode, filename);
-        if (inode == 0 && (to - from > 4096) && !strcmp(perms, "rw-p")) {
+        if (inode == 0 && (to - from > ASSUME_PAGE_SIZE) && !strcmp(perms, "rw-p")) {
             /* most likely this is heap data */
-            printf("%08lx-%08lx = %lu kbytes\n", from, to, (to - from) / 1024);
-            if (read_page(fd, from) == -1) {
-                perror("leakdice: pread failed");
-                ptrace(PTRACE_DETACH, pid, NULL, SIGCONT);
-                exit(1);
-            }
+            offsets[heaps] = from;
+            sizes[heaps] = (to - from) / ASSUME_PAGE_SIZE;
+            total += sizes[heaps];
+            heaps++;
         }
+    }
+
+    srand(getpid());
+    unsigned long r = rand() % total;
+    unsigned long pages = 0, offset = 0;
+    int k;
+
+    for (k = 0; k < heaps; ++k) {
+        if (pages + sizes[k] > r) {
+            offset = offsets[k] + ((r - pages) * ASSUME_PAGE_SIZE);
+            break;
+        } else {
+            pages+= sizes[k];
+        }
+    }
+
+    if (read_page(fd, offset) == -1) {
+        perror("leakdice: pread failed");
+        ptrace(PTRACE_DETACH, pid, NULL, SIGCONT);
+        exit(1);
     }
 
     close(fd);
