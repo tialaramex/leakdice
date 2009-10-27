@@ -97,18 +97,11 @@ static int read_page(int fd, off_t offset)
 int main(int argc, char *argv[])
 {
     if (argc < 2 || !strcmp(argv[1], "--help")) {
-        fprintf(stderr, "%s <pid>: dump some heap pages from a process to diagnose leaks\n", argv[0]);
+        fprintf(stderr, "%s <pid> [<address>]: dump some heap pages from a process to diagnose leaks\n", argv[0]);
         exit(1);
     }
 
     pid_t pid = atoi(argv[1]);
-    char maps[] = "/proc/XXXXXXXXXX/maps";
-    sprintf(maps, "/proc/%u/maps", pid);
-    FILE *file = fopen(maps, "r");
-    if (!file) {
-        perror("leakdice: couldn't open /proc/$pid/maps file");
-        exit(1);
-    }
 
     char mem[] = "/proc/XXXXXXXXXX/mem";
     sprintf(mem, "/proc/%u/mem", pid);
@@ -138,6 +131,26 @@ int main(int argc, char *argv[])
         fprintf(stderr, "process signalled but not as intended?\n");
     }
 
+    if (argc == 3) {
+        unsigned long offset = strtoul(argv[2], NULL, 16);
+        offset &= ~(ASSUME_PAGE_SIZE - 1);
+fprintf(stderr, "offset = %lx\n", offset);
+        if (read_page(fd, offset) == -1) {
+            perror("leakdice: fixed offset pread failed");
+            ptrace(PTRACE_DETACH, pid, NULL, SIGCONT);
+            exit(1);
+        } else {
+            exit(0);
+        }
+    }
+
+    char maps[] = "/proc/XXXXXXXXXX/maps";
+    sprintf(maps, "/proc/%u/maps", pid);
+    FILE *file = fopen(maps, "r");
+    if (!file) {
+        perror("leakdice: couldn't open /proc/$pid/maps file");
+        exit(1);
+    }
     unsigned long offsets[1024], sizes[1024];
     unsigned long total = 0;
     int heaps = 0;
@@ -156,6 +169,11 @@ int main(int argc, char *argv[])
             total += sizes[heaps];
             heaps++;
         }
+    }
+
+    if (total == 0) {
+        fprintf(stderr, "This process appears to have no heap?\n");
+        exit(0);
     }
 
     srand(getpid());
@@ -180,7 +198,6 @@ int main(int argc, char *argv[])
 
     close(fd);
     ptrace(PTRACE_DETACH, pid, NULL, SIGCONT);
-
 }
 
 /* vi:set ts=8 sts=4 sw=4 et: */
