@@ -41,6 +41,8 @@
 #warning prefer a better random number generator
 #endif
 
+#define MAX_HEAP_COUNT 2000
+
 static void dump_ascii(off_t offset, uint8_t *buffer, int count)
 {
     int rows = (count + 15) / 16;
@@ -63,7 +65,7 @@ static void dump_ascii(off_t offset, uint8_t *buffer, int count)
             }
         }
 
-        printf("%08x ", offset + (row * 16));
+        printf("%08lx ", offset + (row * 16));
 
         for (k = 0; k < width; ++k) {
             if (buffer[row * 16 + k] >= 0x20 && buffer[row * 16 + k] < 0x7f) {
@@ -134,7 +136,6 @@ int main(int argc, char *argv[])
     if (argc == 3) {
         unsigned long offset = strtoul(argv[2], NULL, 16);
         offset &= ~(ASSUME_PAGE_SIZE - 1);
-fprintf(stderr, "offset = %lx\n", offset);
         if (read_page(fd, offset) == -1) {
             perror("leakdice: fixed offset pread failed");
             ptrace(PTRACE_DETACH, pid, NULL, SIGCONT);
@@ -151,7 +152,7 @@ fprintf(stderr, "offset = %lx\n", offset);
         perror("leakdice: couldn't open /proc/$pid/maps file");
         exit(1);
     }
-    unsigned long offsets[1024], sizes[1024];
+    unsigned long offsets[MAX_HEAP_COUNT], sizes[MAX_HEAP_COUNT];
     unsigned long total = 0;
     int heaps = 0;
 
@@ -162,14 +163,19 @@ fprintf(stderr, "offset = %lx\n", offset);
         char filename[512];
 
         int count = fscanf(file, "%lx-%lx %4s %lx %x:%x %lu%[^\n]\n", &from, &to, perms, &offset, &devhi, &devlo, &inode, filename);
-        if (inode == 0 && (to - from > ASSUME_PAGE_SIZE) && !strcmp(perms, "rw-p")) {
+        if (count == 8 && inode == 0 && (to - from > ASSUME_PAGE_SIZE) && !strcmp(perms, "rw-p")) {
             /* most likely this is heap data */
             offsets[heaps] = from;
             sizes[heaps] = (to - from) / ASSUME_PAGE_SIZE;
             total += sizes[heaps];
             heaps++;
         }
+        if (heaps >= MAX_HEAP_COUNT) {
+            break;
+        }
     }
+
+    fclose(file);
 
     if (total == 0) {
         fprintf(stderr, "This process appears to have no heap?\n");
